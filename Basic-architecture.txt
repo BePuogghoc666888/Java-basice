@@ -1,0 +1,156 @@
+Hướng đi
+
+Cách 1: Package by Feature (Dành cho Cấu trúc Đầy đủ / Layered)
+src/main/java/com/example/app/
+├── domain/
+│   ├── user/                   # Feature User
+│   │   ├── UserController.java
+│   │   ├── UserService.java
+│   │   ├── UserServiceImpl.java
+│   │   ├── UserRepository.java
+│   │   ├── User.java           # Entity
+│   │   └── dto/                # DTO riêng cho User
+│   │       ├── UserRegisterRequest.java
+│   │       └── UserResponse.java
+│   │
+│   ├── order/                  # Feature Order
+│   │   ├── OrderController.java
+│   │   ├── OrderService.java
+│   │   ├── OrderServiceImpl.java
+│   │   ├── OrderRepository.java
+│   │   ├── Order.java
+│   │   └── dto/
+│   │       ├── CreateOrderRequest.java
+│   │       └── OrderDetailResponse.java
+│   │
+│   └── payment/                # Feature Payment
+│       ├── PaymentController.java
+│       └── ...
+│
+├── config/                     # Dùng chung cho toàn app
+│   ├── SecurityConfig.java
+│   └── CorsConfig.java
+│
+├── exception/                  # Xử lý lỗi dùng chung
+│   ├── GlobalExceptionHandler.java
+│   └── ResourceNotFoundException.java
+│
+└── util/                       # Hàm tiện ích chung
+    └── SecurityUtil.java
+
+
+Client (Frontend/App)
+       │  1. JSON Request
+       ▼
+ OrderController (REST)
+       │  2. Lọc & Validate DTO (@Valid)
+       │     └─► [Nếu DTO lỗi] ──► Bắn Exception ──► GlobalExceptionHandler ──► Trả lỗi 400 về Client
+       ▼
+ OrderService (Service Layer)
+       │  3. Xử lý Business Logic (Tính tiền, kiểm tra tồn kho)
+       │     └─► [Nếu Logic lỗi] ──► Bắn CustomException ──► GlobalExceptionHandler ──► Trả lỗi về Client
+       ▼
+ OrderRepository (Interface - Spring Data JPA)
+       │  4. Chuyển Model -> Entity JPA & gọi method save()
+       ▼
+ Database (MySQL / Postgres)
+
+
+
+
+
+
+
+Cách 2: Hexagonal / Clean Architecture (Dành cho Cấu trúc Nâng cao)
+src/main/java/com/example/app/
+├── user/                       # Module User
+│   ├── domain/                 # 1. CORE LOGIC (Thuần Java, không dính Spring/JPA)
+│   │   ├── User.java           # Model
+│   │   └── UserService.java    # Logic nghiệp vụ core
+│   │
+│   ├── application/            # 2. USE CASES
+│   │   ├── ports/
+│   │   │   ├── in/    # Interface cho Controller gọi
+│   │   │   │   └── RegisterUserUseCase.java
+│   │   │   └── out/            # Interface cho DB / External API gọi
+│   │   │       └── LoadUserPort.java
+│   │   └── services/
+│   │       └── RegisterUserService.java
+│   │
+│   └── infrastructure/         # 3. ADAPTERS (Cài đặt công nghệ)
+│       ├── web/                # REST Controller & DTO
+│       │   ├── UserController.java
+│       │   └── UserRequestDTO.java
+│       ├── persistence/        # Database (JPA)
+│       │   ├── UserEntity.java # Entity JPA
+│       │   └── UserRepository.java
+│       └── adapter/            # Cài đặt Port Out
+│           └── UserPersistenceAdapter.java
+│
+├── order/                      # Module Order (Tương tự)
+└── shared/                     # Config, Exception, Util chung
+
+
+.. 2. Sơ đồ Luồng Nâng cao (Clean / Hexagonal Architecture)
+[ NGOÀI CÙNG ] INFRASTRUCTURE
+└── .web 
+1    Client (Frontend/App)  
+    – ( JSON Request ) →  
+2    OrderController  
+    – ( Validate DTO ) → [Nếu lỗi ──► GlobalExceptionHandler]
+    – ( Request DTO ) →  
+
+    ⇒ [ TRUNG TÂM ] APPLICATION / DOMAIN
+      ├── .ports (in/out)
+3    │   Input Port (CreateOrderInputPort - Interface)  
+      │   ⇒  
+      ├── .services
+      │   OrderService / UseCase (Nằm trong Application)
+      │   – ( Chứa Business Logic - Thuần Java ) →  
+      │   – [Nếu lỗi nghiệp vụ ──► Bắn Domain Exception]  
+      │   – ( Calls ) →  
+4    │   Output Port (SaveOrderOutputPort - Interface)  
+
+    ⇒ [ NGOÀI CÙNG ] INFRASTRUCTURE
+      ├── .adapter 
+5         OrderPersistenceAdapter (Cài đặt Output Port)  
+          – ( Entity JPA ) →  
+          Spring Data JPA Repo (Interface)  
+          – ( SQL INSERT ) →  
+          Database (MySQL / Postgres)
+
+          
+1. Sơ đồ tổng quan luồng dữ liệu (Visual Flow)
+[ NGOÀI CÙNG ]                    [ TRUNG TÂM ]                   [ NGOÀI CÙNG ]
+     INFRASTRUCTURE / WEB            APPLICATION / DOMAIN            INFRASTRUCTURE / DB
+ ┌──────────────────────────┐    ┌──────────────────────────┐    ┌──────────────────────────┐
+ │  Client (Frontend/App)   │    │                          │    │                          │
+ └────────────┬─────────────┘    │                          │    │                          │
+              │ JSON Request     │                          │    │                          │
+              ▼                  │                          │    │                          │
+ ┌──────────────────────────┐    │                          │    │                          │
+ │  OrderController (REST)  │    │                          │    │                          │
+ └────────────┬─────────────┘    │                          │    │                          │
+              │ DTO              │                          │    │                          │
+              ▼                  │                          │    │                          │
+ ┌──────────────────────────┐    │                          │    │                          │
+ │ Input Port (Interface)   ├───►│ CreateOrderUseCase       │    │                          │
+ │ (CreateOrderInputPort)   │    │  (Chứa Business Logic)   │    │                          │
+ └──────────────────────────┘    └────────────┬─────────────┘    │                          │
+                                              │ Calls            │                          │
+                                              ▼                  │                          │
+                                 ┌──────────────────────────┐    │                          │
+                                 │ Output Port (Interface)  ├───►│ OrderPersistenceAdapter  │
+                                 │ (SaveOrderOutputPort)    │    │ (Cài đặt SaveOrderPort)  │
+                                 └──────────────────────────┘    └────────────┬─────────────┘
+                                                                              │ Entity JPA
+                                                                              ▼
+                                                                 ┌──────────────────────────┐
+                                                                 │ Spring Data JPA Repo     │
+                                                                 └────────────┬─────────────┘
+                                                                              │ SQL INSERT
+                                                                              ▼
+                                                                 ┌──────────────────────────┐
+                                                                 │   Database (MySQL/Postgres)│
+                                                                 └──────────────────────────┘
+                                                            
